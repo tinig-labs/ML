@@ -8,10 +8,12 @@ if [ "$(uname)" == "Darwin" ]; then
     brew install portaudio
     pip install pyaudio
     brew install wget
+    brew install jq
+    brew install aria2
 elif [ "$(expr substr $(uname -s) 1 5)" == "Linux" ]; then
     # GNU/Linux specific
     sudo apt-get update
-    sudo apt-get install ffmpeg espeak-ng libportaudio2 python3-pyaudio
+    sudo apt-get install ffmpeg espeak-ng libportaudio2 python3-pyaudio jq aria2
 else
     echo "please install espeak and ffmpeg manually for this OS"
 fi
@@ -217,3 +219,22 @@ curl -L https://openslr.trmal.net/resources/83/welsh_english_female.zip > ./.dat
 unzip -o ./.data/OpenSLR83/temp.zip -d ./.data/OpenSLR83/audios && rm ./.data/OpenSLR83/temp.zip
 curl -L https://openslr.trmal.net/resources/83/welsh_english_male.zip > ./.data/OpenSLR83/temp.zip
 unzip -o ./.data/OpenSLR83/temp.zip -d ./.data/OpenSLR83/audios && rm ./.data/OpenSLR83/temp.zip
+
+# Mozilla Data Collective UP-DSP-PLD (https://mozilladatacollective.com/datasets/cmmxhw46c00tqnw07xyr94zjk)
+# requires MOZILLA_DATA_COLLECTIVE_API_KEY in .env (create one at https://mozilladatacollective.com/profile/api) and accepting the dataset terms on its page
+# about 49 GB to download and 62 GB extracted (all 10 languages), so ~110 GB free space is needed while it runs
+MOZILLA_DATA_COLLECTIVE_API_KEY=$(grep -E '^MOZILLA_DATA_COLLECTIVE_API_KEY=' ./.env | cut -d '=' -f2- | tr -d "\"'\r")
+mkdir -p ./.data/MDC/UP-DSP-PLD/
+RESPONSE=$(curl -sS -X POST "https://mozilladatacollective.com/api/datasets/cmmxhw46c00tqnw07xyr94zjk/download" \
+  -H "Authorization: Bearer $MOZILLA_DATA_COLLECTIVE_API_KEY" \
+  -H "Content-Type: application/json")
+DOWNLOAD_URL=$(echo "$RESPONSE" | jq -r '.downloadUrl')
+if [ -n "$DOWNLOAD_URL" ] && [ "$DOWNLOAD_URL" != "null" ]; then
+    # aria2c splits the download into 16 parallel connections; --continue resumes a partial download
+    aria2c -x 16 -s 16 -k 1M --continue=true --file-allocation=none \
+      -d ./.data/MDC/UP-DSP-PLD -o temp.tar.gz "$DOWNLOAD_URL" \
+      && tar -xzf ./.data/MDC/UP-DSP-PLD/temp.tar.gz -C ./.data/MDC/UP-DSP-PLD/ \
+      && rm ./.data/MDC/UP-DSP-PLD/temp.tar.gz
+else
+    echo "failed to get UP-DSP-PLD download url (check MOZILLA_DATA_COLLECTIVE_API_KEY in .env): $RESPONSE"
+fi
